@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>استبيان رأي الموظفين</title>
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;900&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --c0: #04060f;
+      --c1: #080d1c;
+      --c2: #0d1630;
+      --gold:  #f0b429;
+      --gold2: #ffd166;
+      --sky:   #38bdf8;
+      --sky2:  #7dd3fc;
+      --glow:  rgba(240,180,41,0.18);
+      --glass: rgba(255,255,255,0.04);
+      --glass-b: rgba(255,255,255,0.09);
+      --text: #f0f4ff;
+      --muted: rgba(240,244,255,0.68);
+      --r: 28px;
+      --trans: 580ms cubic-bezier(.22,1,.36,1);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      background: var(--c0);
+      color: var(--text);
+      font-family: 'Tajawal', sans-serif;
+      overflow: hidden;
+    }
+
+    /* ── Canvas particles ── */
+    #canvas {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    /* ── Ambient glow blobs ── */
+    .blob {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(90px);
+      pointer-events: none;
+      z-index: 0;
+      animation: blobFloat ease-in-out infinite alternate;
+    }
+    .blob-1 { width:520px; height:520px; top:-120px; right:-80px;  background:rgba(240,180,41,0.07); animation-duration:14s; }
+    .blob-2 { width:420px; height:420px; bottom:-100px; left:-60px; background:rgba(56,189,248,0.06); animation-duration:18s; }
+    .blob-3 { width:300px; height:300px; top:40%; left:40%;        background:rgba(240,180,41,0.04); animation-duration:22s; }
+    @keyframes blobFloat {
+      from { transform: translate(0,0) scale(1); }
+      to   { transform: translate(30px,40px) scale(1.08); }
+    }
+
+    /* ── Custom cursor ── */
+    #cursor {
+      position: fixed;
+      width: 18px; height: 18px;
+      border: 1.5px solid var(--gold);
+      border-radius: 50%;
+      pointer-events: none;
+      z-index: 9999;
+      transform: translate(-50%,-50%);
+      transition: transform 80ms ease, opacity 200ms;
+      mix-blend-mode: screen;
+    }
+    #cursor-dot {
+      position: fixed;
+      width: 5px; height: 5px;
+      background: var(--gold);
+      border-radius: 50%;
+      pointer-events: none;
+      z-index: 9999;
+      transform: translate(-50%,-50%);
+      transition: transform 20ms linear;
+    }
+
+    /* ── App shell ── */
+    .app {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      padding: 16px 20px;
+      gap: 14px;
+    }
+
+    /* ── Top bar ── */
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex: 0 0 auto;
+    }
+
+    .slide-counter {
+      font-size: .82rem;
+      font-weight: 700;
+      letter-spacing: .08em;
+      color: var(--gold);
+      background: rgba(240,180,41,0.10);
+      border: 1px solid rgba(240,180,41,0.22);
+      border-radius: 999px;
+      padding: 4px 14px;
+      min-width: 64px;
+      text-align: center;
+      flex-shrink: 0;
+    }
+
+    .progress-track {
+      flex: 1;
+      height: 5px;
+      background: rgba(255,255,255,0.07);
+      border-radius: 999px;
+      overflow: hidden;
+      position: relative;
+    }
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      border-radius: 999px;
+      background: linear-gradient(to left, var(--gold2), var(--gold));
+      transition: width .5s ease;
+      box-shadow: 0 0 10px var(--gold), 0 0 24px rgba(240,180,41,0.3);
+      position: relative;
+    }
+    .progress-fill::after {
+      content: '';
+      position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 50%;
+      background: linear-gradient(to left, transparent, rgba(255,255,255,0.55));
+      border-radius: 999px;
+      animation: shimmerBar 2s ease-in-out infinite;
+    }
+    @keyframes shimmerBar {
+      0%,100% { opacity: 0; }
+      50%      { opacity: 1; }
+    }
+
+    /* ── Stage ── */
+    .stage {
+      flex: 1 1 auto;
+      position: relative;
+      overflow: hidden;
+      cursor: grab;
+      user-select: none;
+      touch-action: pan-y;
+    }
+    .stage:active { cursor: grabbing; }
+
+    /* ── Slide shell ── */
+    .slide-shell {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 6px;
+      z-index: 1;
+      will-change: transform, opacity, filter;
+    }
+    .slide-shell.is-exiting  { z-index: 1; pointer-events: none; }
+    .slide-shell.is-entering { z-index: 2; }
+
+    /* ── Slide card ── */
+    .slide-card {
+      width: 100%;
+      max-width: 860px;
+      border-radius: 32px;
+      background: var(--glass);
+      border: 1px solid var(--glass-b);
+      box-shadow:
+        0 0 0 1px rgba(240,180,41,0.06),
+        0 8px 40px rgba(0,0,0,0.45),
+        inset 0 1px 0 rgba(255,255,255,0.07);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      overflow: auto;
+      max-height: calc(100vh - 130px);
+      position: relative;
+      animation: cardBreath 7s ease-in-out infinite;
+    }
+    /* Scan-line shimmer on top edge */
+    .slide-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 5%; right: 5%;
+      height: 1px;
+      background: linear-gradient(to right, transparent, var(--gold2), transparent);
+      opacity: .35;
+      border-radius: 999px;
+    }
+    @keyframes cardBreath {
+      0%,100% { transform: translateY(0px); }
+      50%      { transform: translateY(-5px); }
+    }
+
+    .slide-inner {
+      padding: 38px 32px 40px;
+      text-align: center;
+    }
+
+    /* ── Title ── */
+    .slide-title {
+      font-size: clamp(28px, 5.5vw, 52px);
+      font-weight: 900;
+      line-height: 1.15;
+      margin-bottom: 28px;
+      background: linear-gradient(135deg, #fff 0%, var(--sky2) 55%, var(--gold2) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      opacity: 0;
+      transform: translateY(20px);
+      filter: blur(10px);
+      animation: titleReveal .55s ease-out forwards;
+    }
+    @keyframes titleReveal {
+      to { opacity:1; transform: translateY(0); filter: blur(0); }
+    }
+
+    /* Decorative line under title */
+    .title-rule {
+      width: 60px;
+      height: 3px;
+      background: linear-gradient(to left, var(--gold), var(--sky));
+      border-radius: 999px;
+      margin: 0 auto 28px;
+      opacity: 0;
+      animation: titleReveal .55s .12s ease-out forwards;
+      box-shadow: 0 0 12px var(--gold);
+    }
+
+    /* ── Text lines ── */
+    .text-wrap { max-width: 780px; margin: 0 auto; }
+    .line {
+      font-size: clamp(.98rem, 1.8vw, 1.18rem);
+      line-height: 2;
+      color: var(--muted);
+      opacity: 0;
+      transform: translateY(16px);
+      filter: blur(6px);
+      animation: lineReveal .5s ease-out forwards;
+      margin-bottom: 6px;
+    }
+    @keyframes lineReveal {
+      to { opacity:1; transform: translateY(0); filter: blur(0); }
+    }
+
+    /* ── Grid ── */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+      gap: 12px;
+      text-align: right;
+    }
+
+    .grid-item {
+      position: relative;
+      border-radius: 18px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.04);
+      padding: 16px 18px;
+      font-size: 1.05rem;
+      line-height: 1.75;
+      color: rgba(255,255,255,0.82);
+      opacity: 0;
+      transform: translateY(16px) scale(.97);
+      animation: gridReveal .45s ease-out forwards;
+      cursor: default;
+      overflow: hidden;
+      transition: border-color .25s, background .25s, transform .25s, box-shadow .25s;
+    }
+    /* shimmer sweep on hover */
+    .grid-item::after {
+      content: '';
+      position: absolute;
+      top: 0; left: -100%; width: 60%; height: 100%;
+      background: linear-gradient(110deg, transparent, rgba(255,255,255,0.06), transparent);
+      transform: skewX(-20deg);
+      transition: left .45s ease;
+      pointer-events: none;
+    }
+    .grid-item:hover::after { left: 160%; }
+    .grid-item:hover {
+      border-color: rgba(240,180,41,0.35);
+      background: rgba(240,180,41,0.07);
+      transform: translateY(-4px) scale(1.03);
+      box-shadow: 0 8px 28px rgba(240,180,41,0.12);
+      color: #fff;
+    }
+
+    /* gold dot before item text */
+    .grid-item::before {
+      content: '◆';
+      font-size: .5rem;
+      color: var(--gold);
+      margin-left: 8px;
+      vertical-align: middle;
+      opacity: .7;
+    }
+
+    @keyframes gridReveal {
+      to { opacity:1; transform: translateY(0) scale(1); }
+    }
+
+    /* ── Navigation ── */
+    .nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex: 0 0 auto;
+    }
+
+    .btn {
+      position: relative;
+      border: 1px solid rgba(240,180,41,0.22);
+      background: rgba(240,180,41,0.07);
+      color: var(--gold2);
+      padding: 12px 28px;
+      border-radius: 999px;
+      font-size: 1rem;
+      font-family: 'Tajawal', sans-serif;
+      font-weight: 700;
+      cursor: pointer;
+      overflow: hidden;
+      transition: background .22s, border-color .22s, transform .18s, box-shadow .22s;
+    }
+    .btn::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at center, rgba(240,180,41,0.25) 0%, transparent 70%);
+      opacity: 0;
+      transition: opacity .22s;
+      border-radius: inherit;
+    }
+    .btn:hover::before { opacity: 1; }
+    .btn:hover {
+      border-color: rgba(240,180,41,0.55);
+      background: rgba(240,180,41,0.14);
+      box-shadow: 0 0 18px rgba(240,180,41,0.2);
+    }
+    .btn:active { transform: scale(.97); }
+    .btn:disabled {
+      opacity: .3;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
+    /* Arrow icon */
+    .btn-prev::after { content: ' →'; }
+    .btn-next::before { content: '← '; display:inline; }
+
+    .hint {
+      font-size: .85rem;
+      color: rgba(255,255,255,0.28);
+      text-align: center;
+      flex: 1;
+      letter-spacing: .04em;
+    }
+    .hint kbd {
+      display: inline-block;
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 5px;
+      padding: 1px 6px;
+      font-size: .78rem;
+      font-family: inherit;
+      color: rgba(255,255,255,0.38);
+      background: rgba(255,255,255,0.04);
+    }
+
+
+    /* ── Logo above slide card ── */
+    .slide-logo {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 3;
+      pointer-events: none;
+      user-select: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: min(20vw, 220px);
+      min-width: 130px;
+    }
+    .slide-logo img {
+      width: 100%;
+      height: auto;
+      display: block;
+      object-fit: contain;
+      mix-blend-mode: lighten;
+      filter: drop-shadow(0 0 8px rgba(255,255,255,0.10));
+      opacity: 0.96;
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 600px) {
+      .app { padding: 10px 12px; gap: 10px; }
+      .slide-inner { padding: 24px 18px 26px; }
+      .grid { grid-template-columns: 1fr 1fr; }
+      .hint kbd { display: none; }
+    }
+    @media (min-width: 1200px) {
+      .slide-inner { padding: 52px 56px 54px; }
+    }
+</style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+<div class="blob blob-1"></div>
+<div class="blob blob-2"></div>
+<div class="blob blob-3"></div>
+<div id="cursor"></div>
+<div id="cursor-dot"></div>
+
+<div class="app">
+
+<!-- Top bar -->
+    <div class="topbar"><div class="slide-counter" id="counter">1 / 21</div>
+    <div class="progress-track">
+      <div class="progress-fill" id="progressFill"></div>
+    </div>
+  </div>
+
+  <!-- Stage -->
+  <div class="stage" id="stage"></div>
+
+  <!-- Nav -->
+  <div class="nav">
+    <button class="btn btn-prev" id="prevBtn">السابق</button>
+    <div class="hint">اسحب يمين / يسار &nbsp;|&nbsp; <kbd>←</kbd> <kbd>→</kbd></div>
+    <button class="btn btn-next" id="nextBtn">التالي</button>
+  </div>
+</div>
+
+<script>
+/* ════════════════════════════════════════
+   Slides Data
+════════════════════════════════════════ */
+const slides = [
+  { title:"صوتك يفرق ويانا", text:"بالبداية خلونا نرحب بيكم جميعاً ونشكركم على حضوركم ومشاركتكم ويانا\nهدف هالجلسة هو نسمع منكم بشكل واضح ومرتب، ونفهم شنو دا يصير فعليًا داخل الأقسام من وجهة نظركم أنتم كموظفين.\nاليوم ما نريد كلام عام ولا مجاملات، نريد نفهم الصورة بشكل أعمق حتى نكدر نحسن بيئة العمل، نقوي الثقة بينا، ونوصل لحلول عملية نكدر نطبقها فعليًا" },
+  { title:"ليش مجتمعين اليوم؟", text:"الهدف من هالجلسة هو:\n1- نفهم تجربة الموظف بشكل مباشر\n2- نعرف شنو دا يمشي زين\n3- نكتشف شنو دا يعطل الشغل\n4- نحول آراءكم إلى فرص تطوير حقيقية وخطط نعمل عليها لتطوير بيئة العمل\nأي شركة تريد تتطور، لازم تسمع لموظفيها بصدق.\nأحيانًا أكو أمور تبين بسيطة من برّا، بس بالحقيقة تأثر يوميًا على الموظف وعلى أدائه ورضاه وحتى استمراره.\nولهذا إحنا اليوم موجودين حتى نسمع منكم مباشرة" },
+  { title:"مبادئ الجلسة وهدفها", text:"الهدف نحب نأكد من البداية إن هالجلسة مو للتقييم الشخصي ولا لمحاسبة أي شخص،\nوإنما هي مساحة مهنية هدفها نفهم، نحلل، ونطوّر\nنريد منكم آراء صريحة وواضحة، بس دائمًا بروح الاحترام والتركيز على الحلول.\nوكذلك نحب نطمنكم إن أي ملاحظات مكتوبة ممكن تكون بدون اسم، حتى الكل يكون مرتاح ويعبر بحرية.\n\nهدفنا اليوم بسيط وواضح:\nنسمع منكم، نفهم التحديات اللي تواجهكم، ونطلع سوا بأفكار وحلول تساعدنا نحسن بيئة العمل" },
+  { title:"الية الجلسة", text:"حتى لا يكون الموضوع عشوائي،\nأكو مجموعة أسئلة نريد منكم تجاوبون عليها بكل صراحة ووضوح.\nطريقة الإجابة راح تختلف حسب السؤال، بس غالبًا راح تكون بهالشكل:\nجاوب ببساطة، واختار وحدة:\n1- جيد\n2- يحتاج تحسين\n3- مو صحيح" },
+  { title:"محاور الجلسة", grid:["1- أشياء إيجابية","2- نقاط القوة","3- الرضا العام","4- المدير المباشر","5- تعاون الموارد البشرية","6- التطور والفرص","7- التحديات العامة","8- ضغط العمل","9- الرواتب والمخصصات والاستقطاعات","10- تجربتك بالعالمية","11- اقتراح التطوير","12- 3 شغلات"] },
+  { title:"شلون نصوت", text:"حتى نضمن وضوح وسهولة الإجابة، راح يكون التصويت بهالشكل:\nاختار الإجابة الأقرب لرأيك\nلا تفكر هواي… جاوب حسب تجربتك الفعلية\nكل سؤال إله طريقة جواب محددة (نص / تصويت)\nبالاسئلة الي تطلب نص عبر عن رأيك بأريحية وصراحة لكن بأسلوب مؤدب ومحترم\nاما بالتصويت فـ الـ1 يعني اقل شي او 5 تعني افضل شي" },
+  { title:"أشياء إيجابية", text:"قبل لا نحجي عن المشاكل، مهم نحجي عن الأشياء الإيجابية\nلأن أي تطوير ناجح لازم بالبداية يحافظ على الشي اللي دا يمشي زين.\nنريد نعرف منكم: شنو الأشياء اللي تشوفوها فعلاً جيدة\nأختار الجواب الأنسب حسب رأيك" },
+  { title:"نقاط القوة", text:"1- شنو الشي الي تتمنى يستمر كما هو حالياً؟\n2- هل تشوف بيئة العمل تساعدك تشتغل براحة وتركيز؟" },
+  { title:"الرضا العام", text:"بشكل عام، شلون تشوف تجربتك بالعالمية؟\nهل أنت مرتاح وراضي،\nلو أكو أمور تأثر على راحتك ورضاك وتحتاج تطوير؟ شنو مقترحك؟" },
+  { title:"المدير المباشر", text:"شنو شخصية المدير المفضلة عندك؟\nالمدير الي يحاسب لو الي ميدقق بس يشوف النتيجة النهائية؟" },
+  { title:"تعاون الموارد البشرية", text:"شلون تشوفون تعاون قسم الموارد البشرية؟\nهل تحسون أكو استماع حقيقي للموظف؟\nوهل تشوفونهم جهة داعمة ومساندة لو اكو فجوة تحتاج إلى تحسين؟" },
+  { title:"التطور بالعالمية", text:"شلون تشوفون فرص التطور داخل العالمية؟\nهل أكو فرصة واضحة للتعلم والتقدم،\nلو تحسون هذا الجانب يحتاج رعاية وتطوير حتى يصير أوضح واكثر فعالية؟" },
+  { title:"التحديات العامة", text:"شنو اكثر مشكلة متكررة بشكل يومي تقريباً؟ وشلون نكدر نحلها؟" },
+  { title:"ضغط العمل", text:"شلون تشوفون حجم الشغل؟\nهل هو مناسب ومتوازن،\nلو تحسون أكو ضغط زيادة يحتاج معالجة؟" },
+  { title:"الرواتب والمخصصات والاستقطاعات", text:"1-سلم الرواتب والزيادات السنوية\n2-استقطاع ضريبة الدخل والضمان الاجتماعي" },
+  { title:"تجربتك بالعالمية", text:"شلون تشوف تجربتك بالعالمية؟\nهل هي تجربة ناجحة ولطيفة لو لا؟ وشنو الأسباب؟" },
+  { title:"التطور والانتقال", text:"لو عندك فرصة تنتقل لقسم أو تخصص ثاني، شنو تختار؟ وليش؟\nوشنو المهارات أو الإمكانيات اللي تخليك مناسب لهالانتقال؟\nووين تشوف نفسك ممكن تبرز أكثر؟ (الهوايات)" },
+  { title:"3 شغلات", text:"احجيلنا عن 3 شغلات عاجبتك بالعالمية\nوهمات احجيلنا عن 3 شغلات مو عاجبتك بالعالمية؟ وليش مو عاجبتك؟ وشلون ممكن نغيرها حسب رأيك\nاذكر 3 شغلات تحتاج تطوير ولو تطورت تصير العالمية افضل" },
+  { title:"محاور النقاش", text:"هل عندك معرفة بأهداف العالمية؟\nهل تعرف توجهات الشركة؟\nهل عندك معرفة بالسياسة الداخلية المتبعة حالياً؟ وشنو الشي الي تحسه يحتاج تطوير بهاي السياسة؟" },
+  { title:"النتائج", text:"شنو راح يصير بعدين؟\nكل اللي ينكال اليوم ما راح يضيع.\nراح نجمعه، نحلله، ونحدد أهم الأولويات، وناخذ أراءكم بعين الاعتبار\nوبعدها نحوله إلى خطوات واضحة نشتغل عليها،\nونرجع نشارككم شنو راح يصير فعليًا." },
+  { title:"الختام", text:"كل نشكركم على صراحتكم ومشاركتكم اليوم.\nكل كلمة انكالت لها قيمة، وراح تكون جزء من الصورة اللي نعتمد عليها للتحسين.\nكلامكم مو بس نسمعه… إحنا راح نشتغل عليه،\nوهدفنا نشوف أثر حقيقي ينعكس عليكم وعلى بيئة العمل.\nشكراً إلكم\n\nسمعناكم… والخطوة الجاية علينا" }
+];
+
+/* ════════════════════════════════════════
+   Particle Canvas
+════════════════════════════════════════ */
+const canvas = document.getElementById('canvas');
+const ctx    = canvas.getContext('2d');
+let W, H, particles = [];
+
+function resizeCanvas() {
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+class Particle {
+  constructor() { this.reset(); }
+  reset() {
+    this.x  = Math.random() * W;
+    this.y  = Math.random() * H;
+    this.vx = (Math.random() - .5) * .28;
+    this.vy = (Math.random() - .5) * .28;
+    this.r  = Math.random() * 1.6 + .4;
+    this.a  = Math.random() * .55 + .1;
+  }
+  update() {
+    this.x += this.vx; this.y += this.vy;
+    if (this.x < 0 || this.x > W) this.vx *= -1;
+    if (this.y < 0 || this.y > H) this.vy *= -1;
+  }
+  draw() {
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.r, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(240,180,41,${this.a})`;
+    ctx.fill();
+  }
+}
+
+for (let i = 0; i < 90; i++) particles.push(new Particle());
+
+function drawConnections() {
+  const max = 120;
+  for (let i = 0; i < particles.length; i++) {
+    for (let j = i+1; j < particles.length; j++) {
+      const dx = particles[i].x - particles[j].x;
+      const dy = particles[i].y - particles[j].y;
+      const d  = Math.sqrt(dx*dx + dy*dy);
+      if (d < max) {
+        ctx.beginPath();
+        ctx.moveTo(particles[i].x, particles[i].y);
+        ctx.lineTo(particles[j].x, particles[j].y);
+        ctx.strokeStyle = `rgba(240,180,41,${.08 * (1 - d/max)})`;
+        ctx.lineWidth = .6;
+        ctx.stroke();
+      }
+    }
+  }
+}
+
+function animateCanvas() {
+  ctx.clearRect(0, 0, W, H);
+  drawConnections();
+  particles.forEach(p => { p.update(); p.draw(); });
+  requestAnimationFrame(animateCanvas);
+}
+animateCanvas();
+
+/* ════════════════════════════════════════
+   Custom Cursor
+════════════════════════════════════════ */
+const cursor    = document.getElementById('cursor');
+const cursorDot = document.getElementById('cursor-dot');
+let cx = 0, cy = 0;
+document.addEventListener('mousemove', e => {
+  cx = e.clientX; cy = e.clientY;
+  cursorDot.style.left = cx + 'px';
+  cursorDot.style.top  = cy + 'px';
+  cursor.style.left    = cx + 'px';
+  cursor.style.top     = cy + 'px';
+});
+
+/* ════════════════════════════════════════
+   Slide Engine
+════════════════════════════════════════ */
+const stage       = document.getElementById('stage');
+const progressFill = document.getElementById('progressFill');
+const counter     = document.getElementById('counter');
+const prevBtn     = document.getElementById('prevBtn');
+const nextBtn     = document.getElementById('nextBtn');
+
+let index        = 0;
+let transitioning = false;
+let cleanupTimer  = null;
+const TRANS_MS    = 560;
+
+function buildShell(data) {
+  const card = document.createElement('div');
+  card.className = 'slide-card';
+
+  const inner = document.createElement('div');
+  inner.className = 'slide-inner';
+
+  // Title
+  const h1 = document.createElement('h1');
+  h1.className = 'slide-title';
+  h1.textContent = data.title;
+  inner.appendChild(h1);
+
+  // Decorative rule
+  const rule = document.createElement('div');
+  rule.className = 'title-rule';
+  inner.appendChild(rule);
+
+  if (data.grid) {
+    const grid = document.createElement('div');
+    grid.className = 'grid';
+    data.grid.forEach((item, i) => {
+      const div = document.createElement('div');
+      div.className = 'grid-item';
+      div.style.animationDelay = `${i * 0.055}s`;
+      div.textContent = item;
+      grid.appendChild(div);
+    });
+    inner.appendChild(grid);
+  } else if (data.text) {
+    const wrap = document.createElement('div');
+    wrap.className = 'text-wrap';
+    data.text.split('\n').forEach((line, i) => {
+      const p = document.createElement('p');
+      p.className = 'line';
+      p.style.animationDelay = `${i * 0.11}s`;
+      p.textContent = line;
+      wrap.appendChild(p);
+    });
+    inner.appendChild(wrap);
+  }
+
+  card.appendChild(inner);
+  const shell = document.createElement('div');
+  shell.className = 'slide-shell';
+  shell.appendChild(card);
+  return shell;
+}
+
+function clearAll() {
+  if (cleanupTimer) { clearTimeout(cleanupTimer); cleanupTimer = null; }
+  stage.querySelectorAll('.slide-shell').forEach(el => el.remove());
+}
+
+function updateUI() {
+  progressFill.style.width = `${((index+1) / slides.length) * 100}%`;
+  counter.textContent = `${index+1} / ${slides.length}`;
+  prevBtn.disabled = index === 0;
+  nextBtn.disabled = index === slides.length - 1;
+}
+
+function renderSlide(direction = 0) {
+  updateUI();
+
+  if (direction === 0) {
+    clearAll();
+    const shell = buildShell(slides[index]);
+    shell.classList.add('is-entering');
+    stage.appendChild(shell);
+    transitioning = false;
+    return;
+  }
+
+  transitioning = true;
+  const oldShell = stage.querySelector('.slide-shell');
+  const newShell = buildShell(slides[index]);
+  newShell.classList.add('is-entering');
+
+  const enterFrom = direction > 0 ?  88 : -88;
+  const exitTo    = direction > 0 ? -88 :  88;
+
+  Object.assign(newShell.style, {
+    transform: `translateX(${enterFrom}px) scale(0.97)`,
+    opacity: '0',
+    filter: 'blur(10px)',
+    transition: 'none'
+  });
+  stage.appendChild(newShell);
+
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    const ease = `${TRANS_MS}ms cubic-bezier(.22,1,.36,1)`;
+    if (oldShell) {
+      oldShell.classList.add('is-exiting');
+      Object.assign(oldShell.style, {
+        transition: `transform ${ease}, opacity ${ease}, filter ${ease}`,
+        transform: `translateX(${exitTo}px) scale(0.97)`,
+        opacity: '0',
+        filter: 'blur(8px)',
+        pointerEvents: 'none'
+      });
+    }
+    Object.assign(newShell.style, {
+      transition: `transform ${ease}, opacity ${ease}, filter ${ease}`,
+      transform: 'translateX(0) scale(1)',
+      opacity: '1',
+      filter: 'blur(0)'
+    });
+    cleanupTimer = setTimeout(() => {
+      oldShell?.remove();
+      transitioning = false;
+      cleanupTimer = null;
+    }, TRANS_MS + 40);
+  }));
+}
+
+function goPrev() { if (!transitioning && index > 0)              { index--; renderSlide(-1); } }
+function goNext() { if (!transitioning && index < slides.length-1){ index++; renderSlide(1);  } }
+
+prevBtn.addEventListener('click', goPrev);
+nextBtn.addEventListener('click', goNext);
+
+/* ── Drag/Swipe ── */
+let startX = 0, curX = 0, drag = false;
+
+function pDown(x) { if (transitioning) return; drag=true; startX=curX=x; const s=stage.querySelector('.slide-shell:not(.is-exiting)'); if(s) s.style.transition='none'; }
+function pMove(x) { if (!drag||transitioning) return; curX=x; const s=stage.querySelector('.slide-shell:not(.is-exiting)'); if(s) s.style.transform=`translateX(${curX-startX}px)`; }
+function pUp()    {
+  if (!drag) return; drag=false;
+  const diff=curX-startX, s=stage.querySelector('.slide-shell:not(.is-exiting)');
+  if (Math.abs(diff)>80) {
+    if(s){s.style.transition='none'; s.style.transform='translateX(0) scale(1)';}
+    diff>0 ? goPrev() : goNext();
+  } else if(s) {
+    s.style.transition='transform .28s ease';
+    s.style.transform='translateX(0)';
+    setTimeout(()=>{ if(s.parentNode) s.style.transition=''; },300);
+  }
+}
+
+stage.addEventListener('mousedown',   e => pDown(e.clientX));
+window.addEventListener('mousemove',  e => pMove(e.clientX));
+window.addEventListener('mouseup',    pUp);
+stage.addEventListener('touchstart',  e => { if(e.touches[0]) pDown(e.touches[0].clientX); }, {passive:true});
+stage.addEventListener('touchmove',   e => { if(e.touches[0]) pMove(e.touches[0].clientX); }, {passive:true});
+stage.addEventListener('touchend',    pUp);
+
+window.addEventListener('keydown', e => {
+  if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   goNext();
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown')  goPrev();
+});
+
+/* ── Init ── */
+renderSlide(0);
+</script>
+</body>
+</html>
